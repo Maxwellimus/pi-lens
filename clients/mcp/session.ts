@@ -167,7 +167,9 @@ async function runSessionStartImpl(cwd: string): Promise<SessionStartOutcome> {
 
 	const baseline = ctx.runtime.errorDebtBaseline;
 	return {
-		guidance: joinMessages(consumeSessionStartGuidance(ctx.cacheManager, cwd)),
+		guidance: joinMessages(
+			consumeSessionStartGuidance(ctx.cacheManager, cwd, "mcp"),
+		),
 		errorDebtBaseline: baseline
 			? { testsPassed: baseline.testsPassed, buildPassed: baseline.buildPassed }
 			: undefined,

@@ -1101,6 +1101,13 @@ export function evaluateGitGuard(
 	cwd: string,
 	host: LensToolHost = "pi",
 ): GuardDecision {
+	// #2535 F3: a known tool with no mapping on this host resolves to
+	// undefined — rephrase rather than naming a dead tool. `lens_diagnostics`
+	// is pinned available on both hosts, so the fallback is defensive only.
+	const diagnosticsTool = resolveLensToolName("lens_diagnostics", host);
+	const inspectLine = diagnosticsTool
+		? `Run ${diagnosticsTool} mode=all for full details, then commit again.`
+		: "Inspect the full diagnostics, then commit again.";
 	if (runtime.gitGuardHasBlockers) {
 		logDecision(cwd, "blocked", "runtime_blockers", {
 			projectSeq: runtime.projectSeq,
@@ -1110,7 +1117,7 @@ export function evaluateGitGuard(
 			: "";
 		return {
 			block: true,
-			reason: `🔴 COMMIT BLOCKED (--lens-guard): unresolved blockers must be fixed before commit/push.${detail}\nRun ${resolveLensToolName("lens_diagnostics", host)} mode=all for full details, then commit again.`,
+			reason: `🔴 COMMIT BLOCKED (--lens-guard): unresolved blockers must be fixed before commit/push.${detail}\n${inspectLine}`,
 		};
 	}
 	if (runtime.gitGuardCacheUnknownReason) {
@@ -1198,6 +1205,6 @@ export function evaluateGitGuard(
 	});
 	return {
 		block: true,
-		reason: `🔴 COMMIT BLOCKED (--lens-guard): unresolved blockers must be fixed before commit/push.\nRun ${resolveLensToolName("lens_diagnostics", host)} mode=all for full details, then commit again.`,
+		reason: `🔴 COMMIT BLOCKED (--lens-guard): unresolved blockers must be fixed before commit/push.\n${inspectLine}`,
 	};
 }

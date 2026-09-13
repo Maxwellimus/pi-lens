@@ -78,6 +78,10 @@ import {
 } from "../clients/project-diagnostics/fresh-fetch.js";
 import { loadBootstrapClients } from "../clients/bootstrap.js";
 import {
+	resolveLensToolName,
+	type LensToolHost,
+} from "../clients/tool-config.js";
+import {
 	generatedSkipNotice,
 	scanTruncationNotice,
 } from "../clients/lens-engine.js";
@@ -138,10 +142,15 @@ const MAX_PATHS_ENTRIES = MAX_BATCH_FILES;
 // trivy, govulncheck, dead-code, knip, jscpd, madge, opengrep, test-runner)
 // when mode=full is called without refreshRunners=cheap/all/cached — the
 // "quick mode" gate that skips the expensive fresh-fetch entirely (see
-// `formatFullMode`'s `analyzersPromise`). One shared string so it renders
-// identically everywhere it's used.
-const NOT_REQUESTED_REASON =
-	"refreshRunners not requested this call (quick mode) — pass refreshRunners=cheap/all/cached to lens_diagnostics mode=full to run it";
+// `formatFullMode`'s `analyzersPromise`). One shared function so it renders
+// identically everywhere it's used, naming the tool THIS host can call
+// (#2535 F1 — the shared const named the pi tool on MCP too).
+function notRequestedReason(host: LensToolHost): string {
+	return (
+		"refreshRunners not requested this call (quick mode) — pass " +
+		`refreshRunners=cheap/all/cached to ${resolveLensToolName("lens_diagnostics", host) ?? "diagnostics"} mode=full to run it`
+	);
+}
 
 type LSPServiceLike = ReturnType<typeof getLSPService> & {
 	runWorkspaceDiagnostics?: (
@@ -524,7 +533,7 @@ export function createLensDiagnosticsTool(
 			params: Record<string, unknown>,
 			signal: AbortSignal | undefined,
 			onUpdate: unknown,
-			ctx: { cwd?: string; signal?: AbortSignal },
+			ctx: { cwd?: string; signal?: AbortSignal; host?: LensToolHost },
 		) {
 			const requestedSource = params.source as string | undefined;
 			const requestedScope = params.scope as string | undefined;
@@ -696,6 +705,7 @@ export function createLensDiagnosticsTool(
 					pathsScope,
 					nextWriteIndex,
 					runtime: getRuntime?.(),
+					host: ctx.host ?? "pi",
 				});
 			}
 			return formatDeltaMode(cacheManager, cwd, severity, pathsScope);
@@ -2070,6 +2080,8 @@ async function formatFullMode(
 		 * points a user at. Default false.
 		 */
 		includeGenerated?: boolean;
+		/** Delivery adapter whose callable tool names appear in advisories. */
+		host?: LensToolHost;
 	} = {},
 ): Promise<{ content: [{ type: "text"; text: string }]; details: object }> {
 	const runWorkspaceDiagnostics = lspService.runWorkspaceDiagnostics;
@@ -2085,6 +2097,9 @@ async function formatFullMode(
 		};
 	}
 	const { signal, pathsScope, nextWriteIndex } = options;
+	// #2535: advisories name the delivery host's callable tools; pi callers
+	// omit host and keep the pi spelling.
+	const host = options.host ?? "pi";
 	const includeFile = createScopedFileFilter(cwd, pathsScope);
 	// `paths` (#461): route the active scans at exactly the requested files
 	// instead of walking the whole project. Three cases:
@@ -2134,7 +2149,7 @@ async function formatFullMode(
 				// hand-listing ids here.
 				cold: [...ANALYZER_IDS],
 				coldReasons: Object.fromEntries(
-					ANALYZER_IDS.map((id) => [id, NOT_REQUESTED_REASON]),
+					ANALYZER_IDS.map((id) => [id, notRequestedReason(host)]),
 				),
 				failed: [],
 				timings: {},
@@ -2608,7 +2623,7 @@ async function formatFullMode(
 	// shape). Single formatter (extractors.ts) so this note's wording can't
 	// drift from any other caller that renders the same `cold` list.
 	// #1623 fix-round F5: the "not requested" (quick-mode) batch shares ONE
-	// reason (`NOT_REQUESTED_REASON`) across every id — `formatNotRunEntry`
+	// reason (`notRequestedReason`) across every id — `formatNotRunEntry`
 	// repeating that same ~130-char sentence per id makes the note nearly
 	// unreadable, and the "not applicable / unavailable this run" header
 	// below is a dishonest label for it: these lanes ARE applicable and
@@ -2620,7 +2635,7 @@ async function formatFullMode(
 	const coldNote = extracted.unsafeRoot
 		? `\n\nheavyweight analyzers skipped: the working directory resolves at or above the home directory, so a fresh knip/jscpd/madge/gitleaks/govulncheck/trivy/dead-code scan would walk every unrelated tree under it. Re-run from inside a project directory. Absence of their findings is NOT a clean verdict.`
 		: !projectRunnersRequested && genuinelyColdIds.length > 0
-			? `\n\nnot run this call (quick mode): ${genuinelyColdIds.join(", ")}. ${NOT_REQUESTED_REASON}. Absence of their findings is NOT a clean verdict.`
+			? `\n\nnot run this call (quick mode): ${genuinelyColdIds.join(", ")}. ${notRequestedReason(host)}. Absence of their findings is NOT a clean verdict.`
 			: genuinelyColdIds.length > 0
 				? `\n\ncold (not applicable / unavailable this run): ${genuinelyColdIds
 						.map((id) => formatNotRunEntry(id, extracted.coldReasons))
@@ -2697,7 +2712,7 @@ async function formatFullMode(
 	// #1107 phase 2: same "reached the seam, nothing rendered it" gap as #784
 	// above, for the generated-name/dir skip counters.
 	const generatedSkipNoticeText = projectSnapshot
-		? generatedSkipNotice(projectSnapshot)
+		? generatedSkipNotice(projectSnapshot, host)
 		: undefined;
 	const generatedSkipNote = generatedSkipNoticeText
 		? `\n\n${generatedSkipNoticeText}`
@@ -2718,7 +2733,7 @@ async function formatFullMode(
 		? Date.parse(rawProjectSnapshot.scannedAt)
 		: undefined;
 	const cheapScanStatusNote = !projectRunnersRequested
-		? `\n\ncheap project scan (tree-sitter/fact-rules/ast-grep): not run this call (${NOT_REQUESTED_REASON}).`
+		? `\n\ncheap project scan (tree-sitter/fact-rules/ast-grep): not run this call (${notRequestedReason(host)}).`
 		: options.refreshRunners === "cached"
 			? cheapScanScannedAtMs !== undefined &&
 				Number.isFinite(cheapScanScannedAtMs)
