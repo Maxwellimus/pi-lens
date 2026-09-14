@@ -20,6 +20,7 @@ const workflow = yaml.load(
 			steps?: Array<Record<string, unknown>>;
 		}
 	>;
+	on?: { pull_request?: { types?: string[] } };
 };
 const mutationWorkflow = yaml.load(
 	readFileSync(resolve(ROOT, ".github/workflows/mutation.yml"), "utf8"),
@@ -164,10 +165,34 @@ describe("#3030 PR body lint event coverage", () => {
 		);
 	}
 
-	it("skips synchronize while retaining edited PR-body validation", () => {
+	it("keeps the workflow event matrix and PR-body action matrix exact", () => {
 		// Recurrence: ordinary synchronize events need not revalidate an unchanged
 		// PR body, but edited metadata/body events must still run the advisory check.
-		expect(bodyJobRunsFor("synchronize")).toBe(false);
-		expect(bodyJobRunsFor("edited")).toBe(true);
+		expect(workflow.on?.pull_request?.types).toEqual([
+			"opened",
+			"synchronize",
+			"reopened",
+			"edited",
+		]);
+		const actionMatrix = {
+			opened: true,
+			reopened: true,
+			edited: true,
+			synchronize: false,
+		} as const;
+		for (const [action, expected] of Object.entries(actionMatrix)) {
+			expect(bodyJobRunsFor(action), `${action} PR-body validation`).toBe(
+				expected,
+			);
+		}
+	});
+
+	it("keeps the synchronize exclusion exclusive to PR-body lint", () => {
+		const excludedJobs = Object.entries(workflow.jobs)
+			.filter(([, job]) =>
+				(job.if ?? "").includes("github.event.action != 'synchronize'"),
+			)
+			.map(([key]) => key);
+		expect(excludedJobs).toEqual(["pr-body-lint"]);
 	});
 });
