@@ -7,6 +7,7 @@ import {
 	demotePastEofDiagnostics,
 	type LineCountCache,
 } from "./diagnostic-line-freshness.js";
+import { getDiagnosticTracker } from "./diagnostic-tracker.js";
 import { visibleWidth } from "./deps/pi-tui.js";
 import { normalizeEphemeralMapKey, normalizeMapKey } from "./path-utils.js";
 import { fitLine } from "./tui-fit.js";
@@ -1664,9 +1665,29 @@ export function renderWidget(
 	);
 	const lspChip =
 		useHorizontal && spawning.length > 0 ? "  " + dim("LSP↑") : "";
+	// Session fix-event tally (auto-fix events + delta-clear events). Raw
+	// counter, not getStats(): this re-renders on every invalidation and
+	// getStats() allocates maps and sorts per call. The tracker is an
+	// import-leaf module, so reading it here adds no cycle. N is an
+	// approximate event tally, not a verified-fix count: one diagnostic can be
+	// credited to both an auto-fix and a later delta-clear, a vanish/reappear
+	// cycle re-counts, and the file-based fixers (clippy/dart/biome) contribute
+	// per rewritten file rather than per diagnostic.
+	// Appended only when the complete label fits: an ellipsis cut would clip
+	// the live counts or mangle the label into a wrong number, so below that
+	// width the header renders exactly as it did before this tally existed.
+	const totalFixed = getDiagnosticTracker().getFixedCount();
+	const fixedChip = totalFixed > 0 ? `  ${dim(`fixed:${totalFixed}`)}` : "";
 
 	const header = ` ${cyan("pi-lens")}${langStr ? "  " + dim(langStr) : ""}${lspChip}${summary ? "  " + summary : ""}`;
-	lines.push(fitLine(header, w));
+	lines.push(
+		fitLine(
+			fixedChip && visibleWidth(header) + visibleWidth(fixedChip) <= w
+				? header + fixedChip
+				: header,
+			w,
+		),
+	);
 	if (totalSuppressed > 0) {
 		lines.push(fitLine(` ${dim(`suppressed: ${totalSuppressed}`)}`, w));
 	}
