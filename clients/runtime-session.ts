@@ -116,7 +116,10 @@ import {
 } from "./subagent-mode.js";
 import { TrivyClient, type TrivyResult } from "./trivy-client.js";
 import { isWarmAttached } from "./warm-attach.js";
-import { setSessionLanguages } from "./widget-state.js";
+import {
+	setSessionLanguages,
+	setWidgetDetailsEnabled,
+} from "./widget-state.js";
 import { logWordIndex } from "./word-index-logger.js";
 import { resetOpaqueMutationState } from "./opaque-mutation-scan.js";
 import {
@@ -2253,6 +2256,12 @@ export async function handleSessionStart(
 		resetDispatchBaselines,
 		resetLSPService,
 	} = deps;
+
+	// Before any early return below: pure flag resolution, and a skipped call
+	// would silently ignore widget.details on that path (the flag toggles the
+	// footer widget's detail lines; runtime-session owns it because the widget
+	// module never reads config itself).
+	setWidgetDetailsEnabled(!getFlag("no-widget-details"));
 
 	// Lightweight phase timer — resets after each call so each log line shows
 	// the cost of that phase alone, not cumulative time from session start.
