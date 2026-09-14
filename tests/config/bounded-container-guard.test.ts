@@ -187,10 +187,6 @@ export function determineKeyAxis(expression: string | undefined): KeyAxis {
 	return axis;
 }
 
-function candidateKey(scanRoot: string, absolute: string): string {
-	return path.relative(scanRoot, absolute).split(path.sep).join("/");
-}
-
 export function hasBoundedConstructor(source: string, name: string): boolean {
 	const root = parse(Lang.TypeScript, source).root();
 	let result = false;
@@ -259,10 +255,12 @@ export function hasDeletingTimer(source: string, name: string): boolean {
 	return result;
 }
 
-export function scan(): { sites: Site[]; scanned: number } {
+export function scan(
+	roots: readonly string[] = shippedContainerSourceRoots(),
+): { sites: Site[]; scanned: number } {
 	const sites: Site[] = [];
 	let scanned = 0;
-	for (const root of shippedContainerSourceRoots()) {
+	for (const root of roots) {
 		const files = fs.statSync(root).isDirectory()
 			? listSourceFiles(root, { extensions: [".ts"], skipTests: true })
 			: [root];
@@ -275,7 +273,7 @@ export function scan(): { sites: Site[]; scanned: number } {
 		for (const absolute of files) {
 			const relative = path.relative(ROOT, absolute).split(path.sep).join("/");
 			const source = fs.readFileSync(absolute, "utf8");
-			const key = candidateKey(scanRoot, absolute);
+			const key = path.relative(scanRoot, absolute).split(path.sep).join("/");
 			const candidate = candidates.get(key);
 			for (const container of candidate?.containerDetails ?? []) {
 				scanned++;
@@ -428,15 +426,37 @@ describe("#2981 long-lived containers are bounded or admitted", () => {
 		expect(audit.staleExemptions).toEqual(["fixture.ts#deleted:ef567890"]);
 		expect(audit.problems.join("\n")).toContain("no longer flags");
 	});
-	it("retains nested non-client roots by relative path", () => {
+	it("scans and audits a container below a nested tools source root", () => {
 		const root = fs.mkdtempSync(
 			path.join(process.cwd(), ".probe-bounded-root-"),
 		);
 		try {
-			const nested = path.join(root, "nested", "cache.ts");
+			const toolsRoot = path.join(root, "tools");
+			const nested = path.join(toolsRoot, "nested", "cache.ts");
 			fs.mkdirSync(path.dirname(nested), { recursive: true });
-			fs.writeFileSync(nested, "export const cache = new Map();\n");
-			expect(candidateKey(root, nested)).toBe("nested/cache.ts");
+			fs.writeFileSync(
+				nested,
+				[
+					"const cache = new Map<string, string>();",
+					"export function record(filePath: string): void {",
+					'\tcache.set(filePath, "seen");',
+					"}",
+				].join("\n") + "\n",
+			);
+			const result = scan([toolsRoot]);
+			expect(result.scanned).toBe(1);
+			expect(result.sites).toHaveLength(1);
+			const [site] = result.sites;
+			expect(site.detail).toMatch(/tools\/nested\/cache\.ts:1$/);
+			const audit = auditRegistry({
+				sweepName: "nested tools fixture bounded container guard",
+				flagged: result.sites,
+				registered: result.sites.map(({ key }) => key),
+				scannedCount: result.scanned,
+				minScanned: 1,
+				minFlagged: 1,
+			});
+			expect(audit.problems, audit.problems.join("\n\n")).toEqual([]);
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
