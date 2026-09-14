@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	__testing,
 	clearWidgetState,
@@ -34,7 +34,6 @@ import {
 	setSessionLanguages,
 	WIDGET_STATE_VERSION,
 } from "../../clients/widget-state.js";
-import { getDiagnosticTracker } from "../../clients/diagnostic-tracker.js";
 
 const e = String.fromCharCode(27);
 const theme = {
@@ -2078,146 +2077,5 @@ describe("past-EOF diagnostic gate (#1641)", () => {
 		} finally {
 			await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 		}
-	});
-});
-
-describe("widget header session fixed tally", () => {
-	const seedOutstanding = () => {
-		setSessionLanguages(["ts,js"]);
-		recordDiagnostics(`${process.cwd()}/tally.ts`, [
-			{
-				severity: "error",
-				semantic: "blocking",
-				message: "boom",
-				line: 1,
-				rule: "no-boom",
-				tool: "biome",
-			},
-			{
-				severity: "warning",
-				message: "meh",
-				line: 2,
-				rule: "no-meh",
-				tool: "biome",
-			},
-		]);
-	};
-
-	// Establish, don't inherit: the tracker is a second module singleton beside
-	// the widget store, so the exact-count assertions below need it zeroed at
-	// entry, not just cleaned on exit.
-	beforeEach(() => {
-		getDiagnosticTracker().reset();
-	});
-	afterEach(() => {
-		getDiagnosticTracker().reset();
-	});
-
-	it("renders the auto-fixed + agent-fixed session tally in the header", () => {
-		seedOutstanding();
-		const tracker = getDiagnosticTracker();
-		tracker.trackAutoFixed(4);
-		tracker.trackAgentFixed(12);
-
-		const header = renderWidget(120, theme)[0] ?? "";
-		expect(header).toContain("fixed:16");
-	});
-
-	it("renders the tally after the live outstanding summary", () => {
-		seedOutstanding();
-		getDiagnosticTracker().trackAutoFixed(16);
-
-		const header = renderWidget(120, theme)[0] ?? "";
-		expect(header.indexOf("●1E")).toBeGreaterThanOrEqual(0);
-		expect(header.indexOf("!1W")).toBeGreaterThan(header.indexOf("●1E"));
-		expect(header.indexOf("fixed:16")).toBeGreaterThan(header.indexOf("!1W"));
-	});
-
-	it("omits the tally when nothing was fixed this session", () => {
-		seedOutstanding();
-
-		const header = renderWidget(120, theme)[0] ?? "";
-		expect(header).not.toMatch(/fixed:\d+/);
-	});
-
-	it("drops the tally before the outstanding counts under width pressure", () => {
-		seedOutstanding();
-		getDiagnosticTracker().trackAutoFixed(16);
-
-		const wide = renderWidget(120, theme)[0] ?? "";
-		expect(wide).toContain("fixed:16");
-		// A width that fits the header up to (but excluding) the tally chip —
-		// measured from the rendered string so glyph-width variance cannot skew
-		// the cut point. fitLine spends its remaining budget on the ellipsis.
-		const summaryOnly = wide.slice(0, wide.indexOf("fixed:16"));
-		const narrowed =
-			renderWidget(visibleWidth(summaryOnly) + 1, theme)[0] ?? "";
-		expect(narrowed).toContain("!1W");
-		// Chip presence, not glyph presence: a partial "fixed:1" must fail.
-		expect(narrowed).not.toMatch(/fixed:\d+/);
-	});
-
-	it("renders the tally beside a clean summary, dim and never conflated with it", () => {
-		// The most common state after a productive fix cycle: nothing outstanding,
-		// a nonzero session tally, and the two must stay visually distinct. The
-		// color-encoding theme pins the styling decision the shared fixture
-		// (same escape for every color) cannot: dim for history, green for the
-		// live clean check.
-		setSessionLanguages(["ts,js"]);
-		recordDiagnostics(`${process.cwd()}/tally-clean.ts`, []);
-		getDiagnosticTracker().trackAutoFixed(16);
-
-		const recordingTheme = {
-			fg: (color: string, s: string) => `${color}:${s}`,
-		};
-		const header = renderWidget(120, recordingTheme)[0] ?? "";
-		expect(header).toContain("success:✓ clean");
-		expect(header).toContain("dim:fixed:16");
-		expect(header.indexOf("dim:fixed:16")).toBeGreaterThan(
-			header.indexOf("success:✓ clean"),
-		);
-	});
-
-	it("renders a single agent-fixed tally exactly", () => {
-		seedOutstanding();
-		getDiagnosticTracker().trackAgentFixed(1);
-
-		const header = renderWidget(120, theme)[0] ?? "";
-		expect(header).toContain("fixed:1");
-	});
-
-	it("renders the tally only when it fully fits, else exactly the pre-tally header", () => {
-		seedOutstanding();
-		getDiagnosticTracker().trackAutoFixed(16);
-
-		const full = renderWidget(120, theme)[0] ?? "";
-		expect(full).toContain("fixed:16");
-
-		getDiagnosticTracker().reset();
-		const bare = renderWidget(120, theme)[0] ?? "";
-		expect(bare).not.toMatch(/fixed:\d+/);
-		getDiagnosticTracker().trackAutoFixed(16);
-
-		// The failure band an unconditional append would open up: every width
-		// where the complete tally cannot fit must render byte-identical to the
-		// pre-tally header — the live counts are never clipped, never `fixed:1…`.
-		const bareWidth = visibleWidth(bare);
-		const chipWidth = visibleWidth(full) - bareWidth;
-		for (let w = 1; w < bareWidth + chipWidth; w++) {
-			const withTally = renderWidget(w, theme)[0] ?? "";
-			getDiagnosticTracker().reset();
-			const withoutTally = renderWidget(w, theme)[0] ?? "";
-			getDiagnosticTracker().trackAutoFixed(16);
-			expect(withTally).toEqual(withoutTally);
-			expect(withTally).not.toMatch(/fixed:\d+/);
-		}
-		// At the exact full width the tally is complete, and one column less
-		// already drops it.
-		expect(renderWidget(visibleWidth(full), theme)[0] ?? "").toContain(
-			"fixed:16",
-		);
-		expect(renderWidget(visibleWidth(full) - 1, theme)[0] ?? "").not.toMatch(
-			/fixed:\d+/,
-		);
 	});
 });

@@ -1,5 +1,0 @@
----
-section: Added
----
-
-- **Session fixed tally in the footer widget header** — The widget header now ends with a dim `fixed:N` label tallying fix events this session: auto-fix events plus delta-clear events (previously-shown diagnostics absent on a file's next check), complementing the live outstanding `●E`/`!W` counts, which only show current state. The label is appended only when it fully fits the terminal width, so the live counts are never clipped and the label never truncated into a wrong number; below that width the header renders exactly as before. It reads a new raw counter on the diagnostic tracker (`getFixedCount()`) rather than `getStats()`, because the header re-renders on every invalidation and `getStats()` allocates maps and sorts on every call. `N` is an approximate event tally, not a verified-fix count: one diagnostic can be credited to both an auto-fix and a later delta-clear, a diagnostic that disappears and reappears can be re-counted, and the file-based fixers (rust-clippy, dart-analyze, biome) contribute per rewritten file rather than per diagnostic.
