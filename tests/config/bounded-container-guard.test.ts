@@ -187,6 +187,10 @@ export function determineKeyAxis(expression: string | undefined): KeyAxis {
 	return axis;
 }
 
+function candidateKey(scanRoot: string, absolute: string): string {
+	return path.relative(scanRoot, absolute).split(path.sep).join("/");
+}
+
 export function hasBoundedConstructor(source: string, name: string): boolean {
 	const root = parse(Lang.TypeScript, source).root();
 	let result = false;
@@ -271,9 +275,7 @@ export function scan(): { sites: Site[]; scanned: number } {
 		for (const absolute of files) {
 			const relative = path.relative(ROOT, absolute).split(path.sep).join("/");
 			const source = fs.readFileSync(absolute, "utf8");
-			const key = relative.startsWith("clients/")
-				? relative.slice("clients/".length)
-				: path.basename(relative);
+			const key = candidateKey(scanRoot, absolute);
 			const candidate = candidates.get(key);
 			for (const container of candidate?.containerDetails ?? []) {
 				scanned++;
@@ -303,6 +305,13 @@ export function scan(): { sites: Site[]; scanned: number } {
 	return { sites, scanned };
 }
 
+function exemptionsForAudit(
+	_sites: readonly Site[],
+	reasons: Readonly<Record<string, string>> = FINITE_REASONS,
+): Readonly<Record<string, string>> {
+	return reasons;
+}
+
 function finiteReason(
 	site: Site,
 	reasons: Readonly<Record<string, string>> = FINITE_REASONS,
@@ -312,12 +321,7 @@ function finiteReason(
 
 describe("#2981 long-lived containers are bounded or admitted", () => {
 	const result = scan();
-	const finite = Object.fromEntries(
-		result.sites.flatMap((site) => {
-			const reason = finiteReason(site);
-			return reason ? [[site.key, reason]] : [];
-		}),
-	);
+	const finite = exemptionsForAudit(result.sites);
 	const admissions = result.sites.filter(
 		(site) => site.verdict === 5 && !finiteReason(site),
 	);
@@ -391,6 +395,51 @@ describe("#2981 long-lived containers are bounded or admitted", () => {
 		expect(determineKeyAxis("languageId")).toBe("language id");
 		expect(determineKeyAxis("notFilePath")).toBe("undetermined");
 		expect(determineKeyAxis("opaqueKey")).toBe("undetermined");
+		expect(determineKeyAxis("`file`")).toBe("undetermined");
+	});
+	it("reports a stale finite exemption independently of the live site population", () => {
+		const staleReasons = {
+			"fixture.ts#deleted:ef567890":
+				"finite vocabulary removed from the source",
+		};
+		expect(
+			exemptionsForAudit(
+				[
+					{
+						key: "fixture.ts#live:abcd1234",
+						detail: "fixture.ts:1",
+						name: "cache",
+						verdict: 5,
+						keyExpression: "filePath",
+						keyAxis: "file path",
+					},
+				],
+				staleReasons,
+			),
+		).toBe(staleReasons);
+		const audit = auditRegistry({
+			sweepName: "fixture bounded container guard",
+			flagged: ["fixture.ts#live:abcd1234"],
+			registered: ["fixture.ts#live:abcd1234"],
+			exemptions: {
+				...staleReasons,
+			},
+		});
+		expect(audit.staleExemptions).toEqual(["fixture.ts#deleted:ef567890"]);
+		expect(audit.problems.join("\n")).toContain("no longer flags");
+	});
+	it("retains nested non-client roots by relative path", () => {
+		const root = fs.mkdtempSync(
+			path.join(process.cwd(), ".probe-bounded-root-"),
+		);
+		try {
+			const nested = path.join(root, "nested", "cache.ts");
+			fs.mkdirSync(path.dirname(nested), { recursive: true });
+			fs.writeFileSync(nested, "export const cache = new Map();\n");
+			expect(candidateKey(root, nested)).toBe("nested/cache.ts");
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
 	});
 	it("requires a content-keyed exemption to survive an unchanged occurrence", () => {
 		const key = "fixture.ts#cache:abcd1234";
