@@ -143,15 +143,48 @@ function keyExpressionFor(source: string, name: string): string | undefined {
 	return expression;
 }
 
+const KEY_AXIS_NAMES: Readonly<
+	Record<Exclude<KeyAxis, "undetermined">, ReadonlySet<string>>
+> = {
+	"file path": new Set([
+		"file",
+		"filename",
+		"filepath",
+		"path",
+		"artifact",
+		"snapshot",
+		"touch",
+	]),
+	cwd: new Set(["cwd", "dir", "directory", "project", "root", "workspace"]),
+	pid: new Set(["pid", "process"]),
+	"session id": new Set(["session", "sessionid", "turn"]),
+	"language id": new Set(["language", "languageid", "lang"]),
+	"tool id": new Set(["package", "runner", "tool", "toolid"]),
+};
+
+function axisName(node: any): KeyAxis {
+	const text = node.text().toLowerCase();
+	for (const [axis, names] of Object.entries(KEY_AXIS_NAMES) as Array<
+		[Exclude<KeyAxis, "undetermined">, ReadonlySet<string>]
+	>) {
+		if (names.has(text)) return axis;
+	}
+	return "undetermined";
+}
+
 export function determineKeyAxis(expression: string | undefined): KeyAxis {
 	if (!expression) return "undetermined";
-	if (/file|path|artifact|snapshot|touch/i.test(expression)) return "file path";
-	if (/cwd|root|project|workspace|dir/i.test(expression)) return "cwd";
-	if (/pid|process/i.test(expression)) return "pid";
-	if (/session|turn/i.test(expression)) return "session id";
-	if (/language|lang/i.test(expression)) return "language id";
-	if (/tool|runner|package/i.test(expression)) return "tool id";
-	return "undetermined";
+	const root = parse(Lang.TypeScript, expression).root();
+	let axis: KeyAxis = "undetermined";
+	walk(root, (node) => {
+		if (
+			axis !== "undetermined" ||
+			!["identifier", "property_identifier"].includes(node.kind())
+		)
+			return;
+		axis = axisName(node);
+	});
+	return axis;
 }
 
 export function hasBoundedConstructor(source: string, name: string): boolean {
@@ -354,7 +387,9 @@ describe("#2981 long-lived containers are bounded or admitted", () => {
 	});
 	it("determines axes from key expressions and keeps unknown keys honest", () => {
 		expect(determineKeyAxis("filePath")).toBe("file path");
+		expect(determineKeyAxis("request.filePath")).toBe("file path");
 		expect(determineKeyAxis("languageId")).toBe("language id");
+		expect(determineKeyAxis("notFilePath")).toBe("undetermined");
 		expect(determineKeyAxis("opaqueKey")).toBe("undetermined");
 	});
 	it("requires a content-keyed exemption to survive an unchanged occurrence", () => {
