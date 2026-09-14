@@ -148,5 +148,31 @@ describe("diagnostic-tracker", () => {
 			const tracker2 = getDiagnosticTracker();
 			expect(tracker1).toBe(tracker2);
 		});
+
+		it("getFixedCount sums auto and agent fixes", () => {
+			const tracker = createDiagnosticTracker();
+			tracker.trackAutoFixed(3);
+			tracker.trackAgentFixed(9);
+			expect(tracker.getFixedCount()).toBe(12);
+		});
+
+		it("getFixedCount starts at zero and clears on reset", () => {
+			const tracker = createDiagnosticTracker();
+			expect(tracker.getFixedCount()).toBe(0);
+			tracker.trackAutoFixed(2);
+			tracker.trackAgentFixed(5);
+			tracker.reset();
+			expect(tracker.getFixedCount()).toBe(0);
+		});
+
+		it("getFixedCount stays in sync with getStats totals", () => {
+			const tracker = createDiagnosticTracker();
+			tracker.trackAutoFixed(4);
+			tracker.trackAgentFixed(12);
+			const stats = tracker.getStats();
+			expect(tracker.getFixedCount()).toBe(
+				stats.totalAutoFixed + stats.totalAgentFixed,
+			);
+		});
 	});
 });

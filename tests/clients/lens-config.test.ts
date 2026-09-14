@@ -151,6 +151,29 @@ describe("global pi-lens config", () => {
 		expect(resolvePiLensFlag("immediate-format", false, parsed)).toBe(true);
 	});
 
+	it("parses widget.details for the no-widget-details flag beside visible", () => {
+		const home = makeTempHome();
+		const configPath = writeConfig(
+			home,
+			JSON.stringify({ widget: { visible: false, details: false } }),
+		);
+		const parsed = loadPiLensGlobalConfig(configPath);
+		// The hand-parsed widget section must MERGE, not replace: visible (non-flag)
+		// and details (the no-widget-details flag's configKey) both survive.
+		expect(parsed).toMatchObject({
+			widget: { visible: false, details: false },
+		});
+		// widget.details=false → negated flag resolves ON (details hidden).
+		expect(resolvePiLensFlag("no-widget-details", false, parsed)).toBe(true);
+
+		// No details key → flag stays OFF (details render, the default).
+		const bare = loadPiLensGlobalConfig(
+			writeConfig(makeTempHome(), JSON.stringify({ widget: {} })),
+		);
+		expect(resolvePiLensFlag("no-widget-details", false, bare)).toBe(false);
+		// CLI --no-widget-details forces it on regardless of config.
+		expect(resolvePiLensFlag("no-widget-details", true, bare)).toBe(true);
+	});
 	it("warns once on an unknown top-level config key but not on recognized ones", () => {
 		const home = makeTempHome();
 		const configPath = writeConfig(

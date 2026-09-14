@@ -607,6 +607,19 @@ export function setSessionLanguages(langs: string[]): void {
 	requestRender();
 }
 
+// `widget.details` config / `--no-widget-details`: when false, the footer
+// renders ONLY its headline line — current outstanding counts and the clean
+// check. File rows, the suppressed count, and blocking-diagnostic lines are
+// opt-out details. Resolved once at session start by runtime-session.
+// Config-derived, so deliberately NOT part of clearWidgetState or widget-state
+// serialization — a session reset must not flip a user preference.
+let widgetDetailsEnabled = true;
+
+export function setWidgetDetailsEnabled(enabled: boolean): void {
+	widgetDetailsEnabled = enabled;
+	requestRender();
+}
+
 /** File-kinds detected in use this session (#170 staleness scope). */
 export function getSessionLanguages(): string[] {
 	return [...sessionLanguages];
@@ -1664,9 +1677,17 @@ export function renderWidget(
 	);
 	const lspChip =
 		useHorizontal && spawning.length > 0 ? "  " + dim("LSP↑") : "";
+	// The header deliberately shows CURRENT state only (outstanding counts,
+	// clean check). Session fix-history is out of scope by design: the
+	// tracker counts fix events (auto-fixes + delta clears), not
+	// diagnostics, so any session "fixed" number would overstate what the
+	// agent actually resolved.
 
 	const header = ` ${cyan("pi-lens")}${langStr ? "  " + dim(langStr) : ""}${lspChip}${summary ? "  " + summary : ""}`;
 	lines.push(fitLine(header, w));
+	// Details toggle (`widget.details` / `--no-widget-details`): the headline
+	// carries the current-state summary; everything below it is opt-out detail.
+	if (!widgetDetailsEnabled) return lines;
 	if (totalSuppressed > 0) {
 		lines.push(fitLine(` ${dim(`suppressed: ${totalSuppressed}`)}`, w));
 	}

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__testing,
 	clearWidgetState,
@@ -30,6 +30,7 @@ import {
 	STALE_RECONCILE_DEBOUNCE_MS,
 	recordRunner,
 	renderWidget,
+	setWidgetDetailsEnabled,
 	setRenderCallback,
 	setSessionLanguages,
 	WIDGET_STATE_VERSION,
@@ -2077,5 +2078,115 @@ describe("past-EOF diagnostic gate (#1641)", () => {
 		} finally {
 			await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 		}
+	});
+});
+
+describe("widget details toggle", () => {
+	beforeEach(() => {
+		setWidgetDetailsEnabled(true);
+	});
+	afterEach(() => {
+		setWidgetDetailsEnabled(true);
+	});
+
+	it("renders only the headline when details are disabled", () => {
+		setSessionLanguages(["ts,js"]);
+		recordDiagnostics(`${process.cwd()}/headline-only.ts`, [
+			{
+				severity: "error",
+				semantic: "blocking",
+				message: "boom",
+				line: 1,
+				rule: "no-boom",
+				tool: "biome",
+			},
+		]);
+		recordDiagnostics(`${process.cwd()}/details-hidden.ts`, [
+			{
+				severity: "warning",
+				message: "meh",
+				line: 2,
+				rule: "no-meh",
+				tool: "biome",
+			},
+		]);
+		setWidgetDetailsEnabled(false);
+
+		const lines = renderWidget(120, theme);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("●1E");
+		expect(lines[0]).toContain("!1W");
+		// No file rows, no suppressed line, no blocking-diagnostic detail lines.
+		expect(lines.join("\n")).not.toContain("headline-only.ts");
+		expect(lines.join("\n")).not.toContain("details-hidden.ts");
+	});
+
+	it("round-trips: details return when re-enabled (the default)", () => {
+		setSessionLanguages(["ts,js"]);
+		recordDiagnostics(`${process.cwd()}/headline-only.ts`, [
+			{
+				severity: "error",
+				semantic: "blocking",
+				message: "boom",
+				line: 1,
+				rule: "no-boom",
+				tool: "biome",
+			},
+		]);
+		setWidgetDetailsEnabled(false);
+		expect(renderWidget(120, theme)).toHaveLength(1);
+
+		setWidgetDetailsEnabled(true);
+		const lines = renderWidget(120, theme);
+		expect(lines.length).toBeGreaterThan(1);
+		expect(lines.join("\n")).toContain("headline-only.ts");
+	});
+
+	it("keeps the counts on the single headline line at narrow widths", () => {
+		setSessionLanguages(["ts,js"]);
+		recordDiagnostics(`${process.cwd()}/narrow.ts`, [
+			{
+				severity: "error",
+				semantic: "blocking",
+				message: "boom",
+				line: 1,
+				rule: "no-boom",
+				tool: "biome",
+			},
+			{
+				severity: "warning",
+				message: "meh",
+				line: 2,
+				rule: "no-meh",
+				tool: "biome",
+			},
+		]);
+		setWidgetDetailsEnabled(false);
+
+		// Vertical layout: with details on, the per-file rows render BELOW the
+		// headline — collapsed, the counts must still be on the one line kept.
+		const lines = renderWidget(40, theme);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain("●1E");
+		expect(lines[0]).toContain("!1W");
+		expect(lines.join("\n")).not.toContain("narrow.ts");
+	});
+
+	it("survives clearWidgetState: config-derived, never session-cleared", () => {
+		setWidgetDetailsEnabled(false);
+		clearWidgetState();
+		setSessionLanguages(["ts,js"]);
+		recordDiagnostics(`${process.cwd()}/survives.ts`, [
+			{
+				severity: "error",
+				semantic: "blocking",
+				message: "boom",
+				line: 1,
+				rule: "no-boom",
+				tool: "biome",
+			},
+		]);
+		// clearWidgetState owns session state, not config: the toggle persists.
+		expect(renderWidget(120, theme)).toHaveLength(1);
 	});
 });

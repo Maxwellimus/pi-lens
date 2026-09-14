@@ -86,6 +86,12 @@ export interface PiLensGlobalConfig {
 	widget?: {
 		/** Whether the diagnostics widget is visible when a session starts. */
 		visible?: boolean;
+		/**
+		 * Whether the footer widget renders its detail lines (file rows,
+		 * suppressed count, blocking diagnostics) below the headline.
+		 * false collapses the widget to the headline only (`--no-widget-details`).
+		 */
+		details?: boolean;
 	};
 	/** Whether pi-lens runs at all this session (`--no-lens`). */
 	lens?: PiLensToggleConfig;
@@ -341,15 +347,21 @@ export function loadPiLensGlobalConfig(
 
 		const widget = asConfigObject(raw.widget);
 		if (widget) {
+			// Merge, never replace: the registry loop above may have already
+			// materialized config.widget for a flag configKey in this section
+			// (widget.details), and a wholesale assignment would clobber it.
+			const parsedWidget: { visible?: boolean; details?: boolean } =
+				(config.widget as typeof parsedWidget) ?? {};
 			if (typeof widget.visible === "boolean") {
-				config.widget = { visible: widget.visible };
+				parsedWidget.visible = widget.visible;
 			} else {
 				// #533: present-but-wrong-type warns; absent stays silent.
 				if ("visible" in widget) {
 					warnInvalid("widget.visible must be a boolean");
 				}
-				config.widget = { visible: undefined };
+				parsedWidget.visible = undefined;
 			}
+			config.widget = parsedWidget;
 		}
 
 		const format = asConfigObject(raw.format);

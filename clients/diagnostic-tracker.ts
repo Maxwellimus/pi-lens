@@ -42,6 +42,11 @@ export interface DiagnosticTracker {
 	trackAutoFixed(count: number): void;
 	trackAgentFixed(count: number): void;
 
+	// Cheap fixed-total for hot render paths (the footer widget header, which
+	// re-renders on every invalidation) — getStats() allocates maps and sorts
+	// per call, so it must not sit on that path.
+	getFixedCount(): number;
+
 	// Get session stats for summary
 	getStats(): SessionStats;
 
@@ -102,6 +107,9 @@ export function createDiagnosticTracker(): DiagnosticTracker {
 			if (count > 0) {
 				totalAgentFixed += count;
 			}
+		},
+		getFixedCount() {
+			return totalAutoFixed + totalAgentFixed;
 		},
 
 		getStats(): SessionStats {

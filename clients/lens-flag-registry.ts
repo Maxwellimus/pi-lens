@@ -225,6 +225,15 @@ export const LENS_FLAGS: readonly LensFlagSpec[] = [
 		scope: "global",
 	},
 	{
+		name: "no-widget-details",
+		description:
+			"Collapse the footer widget to its headline (outstanding ●E/!W counts, or ✓ clean): file rows, the suppressed count, and blocking-diagnostic lines are hidden. Default off — details render. Also via widget.details=false in ~/.pi-lens/config.json.",
+		configKey: "widget.details",
+		negated: true,
+		default: false,
+		scope: "global",
+	},
+	{
 		name: "no-lazy-tools",
 		description:
 			"Keep all pi-lens tools active to avoid tool-list cache changes. Also via tools.lazy=false in ~/.pi-lens/config.json.",
