@@ -1225,6 +1225,41 @@ describe("#2449 review round 2 — the settled sweep is incremental and honest",
 		}
 	});
 
+	it("does not replay a size-only mutation when the hash budget omits both hashes", async () => {
+		// A size change is a mutation candidate, but without content evidence it
+		// cannot cross the replay or attribution boundary. This is the third
+		// outcome beside confirmed change and clean observation.
+		const env = setupTestEnvironment("pi-lens-2984-size-only-");
+		try {
+			const filePath = path.join(env.tmpDir, "large.ts");
+			const before = Buffer.alloc(
+				OBSERVED_SWEEP_HASH_BUDGET_BYTES + 1024,
+				0x61,
+			);
+			fs.writeFileSync(filePath, before);
+			const armed = await armObservedMutation(armArgs(filePath, env.tmpDir));
+			expect(armed.armed).toBe(true);
+
+			fs.writeFileSync(filePath, Buffer.concat([before, Buffer.from("b")]));
+			const sink = recorder();
+			const settled = await settleObservedMutation({
+				toolCallId: "call-observed-1",
+				toolName: "patch_file",
+				sessionGeneration: 1,
+				turnIndex: 1,
+				record: sink.record,
+			});
+
+			expect(settled.changedPaths).toEqual([]);
+			expect(settled.unverifiablePaths).toHaveLength(1);
+			expect(settled.replayed).toBe(0);
+			expect(sink.entries).toEqual([]);
+			expect(lookupLearnedMutatingTool("patch_file")).toBeUndefined();
+		} finally {
+			env.cleanup();
+		}
+	});
+
 	it("catches a same-tick, same-SIZE rewrite that the stat short-circuit alone would miss", async () => {
 		// Catalog shape 6, reached by the F3 redesign: "stat first, read only on
 		// change" is what makes the sweep affordable, and a file rewritten to the

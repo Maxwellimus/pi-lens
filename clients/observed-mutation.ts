@@ -1162,7 +1162,7 @@ export async function settleObservedMutation(
 
 /**
  * The observational net asks whether to look harder, so an absent content
- * hash is a change candidate even when cheap stat fields are unchanged.
+ * hash is an evidence gap even when cheap stat fields report a change.
  *
  * #2984/#2952 timing probe recurrence: treating an uncompleted or budgeted
  * observation as clean grants the wrong direction to a shared diff helper.
@@ -1176,11 +1176,7 @@ function diffObservedStats(
 	const unverifiable = new Set<string>();
 	for (const [key, stat] of after) {
 		const previous = before.get(key);
-		if (
-			previous &&
-			(previous.hash === undefined || stat.hash === undefined) &&
-			previous.size === stat.size
-		) {
+		if (previous && (previous.hash === undefined || stat.hash === undefined)) {
 			changed.delete(key);
 			unverifiable.add(key);
 		}
